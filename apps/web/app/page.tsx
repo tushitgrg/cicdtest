@@ -1,102 +1,146 @@
-import Image, { type ImageProps } from "next/image";
-import { Button } from "@repo/ui/button";
-import styles from "./page.module.css";
+"use client";
 
-type Props = Omit<ImageProps, "src"> & {
-  srcLight: string;
-  srcDark: string;
-};
+import { useEffect, useRef, useState } from "react";
+import { io, Socket } from "socket.io-client";
 
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
+export default function App() {
+  const [joined, setJoined] = useState(false);
+  const socket = useRef<Socket | null>(null);
+
+  useEffect(() => {
+    socket.current = io("http://localhost:3001");
+
+    return () => {
+      socket.current?.disconnect();
+    };
+  }, []);
+
+  const [room, setRoom] = useState<string>("");
 
   return (
-    <>
-      <Image {...rest} src={srcLight} className="imgLight" />
-      <Image {...rest} src={srcDark} className="imgDark" />
-    </>
-  );
-};
-
-export default function Home() {
-  return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight="turborepo-dark.svg"
-          srcDark="turborepo-light.svg"
-          alt="Turborepo logo"
-          width={180}
-          height={38}
-          priority
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      {!joined ? (
+        <JoinRoom
+          onJoin={(roomName: string) => {
+            socket.current!.emit("joinRoom", {
+              room: roomName,
+            });
+            setRoom(roomName);
+            setJoined(true);
+          }}
         />
-        <ol>
-          <li>
-            Get started by editing <code>apps/web/app/page.tsx</code>
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+      ) : (
+        <ChatRoom room={room} socket={socket.current!} />
+      )}
+    </div>
+  );
+}
 
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new/clone?demo-description=Learn+to+implement+a+monorepo+with+a+two+Next.js+sites+that+has+installed+three+local+packages.&demo-image=%2F%2Fimages.ctfassets.net%2Fe5382hct74si%2F4K8ZISWAzJ8X1504ca0zmC%2F0b21a1c6246add355e55816278ef54bc%2FBasic.png&demo-title=Monorepo+with+Turborepo&demo-url=https%3A%2F%2Fexamples-basic-web.vercel.sh%2F&from=templates&project-name=Monorepo+with+Turborepo&repository-name=monorepo-turborepo&repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fturborepo%2Ftree%2Fmain%2Fexamples%2Fbasic&root-directory=apps%2Fdocs&skippable-integrations=1&teamSlug=vercel&utm_source=create-turbo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://turborepo.com/docs?utm_source"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
-        </div>
-        <Button appName="web" className={styles.secondary}>
-          Open alert
-        </Button>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com/templates?search=turborepo&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+interface JoinRoomProps {
+  onJoin: (roomName: string) => void;
+}
+
+function JoinRoom({ onJoin }: JoinRoomProps) {
+  const [room, setRoom] = useState<string>("");
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (room) {
+      onJoin(room);
+    }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-lg w-80">
+      <h2 className="text-2xl font-bold mb-4 text-center">Join a Room</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <input
+          type="text"
+          placeholder="Room Name"
+          value={room}
+          onChange={(e) => setRoom(e.target.value)}
+          className="w-full p-2 border rounded"
+          required
+        />
+        <button
+          type="submit"
+          className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
         >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://turborepo.com?utm_source=create-turbo"
-          target="_blank"
-          rel="noopener noreferrer"
+          Join
+        </button>
+      </form>
+    </div>
+  );
+}
+
+interface ChatRoomProps {
+  room: string;
+  socket: Socket;
+}
+
+interface Message {
+  text: string;
+}
+
+function ChatRoom({ room, socket }: ChatRoomProps) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState<string>("");
+  useEffect(() => {
+    const handleMessage = (msg: string) => {
+      console.log("Received:", msg);
+      setMessages((prev) => [...prev, { text: msg }]);
+    };
+
+    socket.on("message", handleMessage);
+
+    return () => {
+      socket.off("message", handleMessage);
+    };
+  }, [socket]);
+
+  const handleSend = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (input.trim()) {
+      socket.emit("message", {
+        room: room,
+        message: input,
+      });
+
+      setInput("");
+    }
+  };
+
+  return (
+    <div className="bg-white w-full max-w-md p-6 rounded-xl shadow-lg">
+      <h2 className="text-xl font-bold mb-2">
+        Room: <span className="text-blue-600">{room}</span>
+      </h2>
+      <div className="border p-4 h-60 overflow-y-auto mb-4 rounded">
+        {messages.length === 0 && (
+          <p className="text-gray-500 text-center">No messages yet.</p>
+        )}
+        {messages.map((msg, idx) => (
+          <div key={idx} className="mb-2">
+            <span>{msg.text}</span>
+          </div>
+        ))}
+      </div>
+      <form onSubmit={handleSend} className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Type a message..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className="flex-1 p-2 border rounded"
+        />
+        <button
+          type="submit"
+          className="bg-green-500 text-white px-4 rounded hover:bg-green-600"
         >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to turborepo.com →
-        </a>
-      </footer>
+          Send
+        </button>
+      </form>
     </div>
   );
 }
